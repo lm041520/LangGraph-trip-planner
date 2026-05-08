@@ -146,6 +146,41 @@
         <!-- 第三步:额外要求 -->
         <div class="form-section">
           <div class="section-header">
+            <span class="section-icon">🧭</span>
+            <span class="section-title">旅行风格与预算</span>
+          </div>
+
+          <a-row :gutter="24">
+            <a-col :span="12">
+              <a-form-item name="travel_style">
+                <template #label>
+                  <span class="form-label">旅行风格</span>
+                </template>
+                <a-segmented
+                  v-model:value="formData.travel_style"
+                  :options="['舒适均衡', '特种兵模式', '慢旅行', '亲子', '情侣', '老人友好', '美食优先', '拍照打卡']"
+                  class="wide-control"
+                />
+              </a-form-item>
+            </a-col>
+            <a-col :span="12">
+              <a-form-item name="budget_level">
+                <template #label>
+                  <span class="form-label">预算档位</span>
+                </template>
+                <a-segmented
+                  v-model:value="formData.budget_level"
+                  :options="['经济', '舒适', '豪华']"
+                  class="wide-control"
+                />
+              </a-form-item>
+            </a-col>
+          </a-row>
+        </div>
+
+        <!-- 第四步:额外要求 -->
+        <div class="form-section">
+          <div class="section-header">
             <span class="section-icon">💬</span>
             <span class="section-title">额外要求</span>
           </div>
@@ -216,7 +251,12 @@ const loading = ref(false)
 const loadingProgress = ref(0)
 const loadingStatus = ref('')
 
-const formData = reactive<TripFormData & { start_date: Dayjs | null; end_date: Dayjs | null }>({
+type TripFormState = Omit<TripFormData, 'start_date' | 'end_date'> & {
+  start_date: Dayjs | null
+  end_date: Dayjs | null
+}
+
+const formData = reactive<TripFormState>({
   city: '',
   start_date: null,
   end_date: null,
@@ -224,7 +264,9 @@ const formData = reactive<TripFormData & { start_date: Dayjs | null; end_date: D
   transportation: '公共交通',
   accommodation: '经济型酒店',
   preferences: [],
-  free_text_input: ''
+  free_text_input: '',
+  travel_style: '舒适均衡',
+  budget_level: '舒适'
 })
 
 // 监听日期变化,自动计算旅行天数
@@ -280,7 +322,9 @@ const handleSubmit = async () => {
       transportation: formData.transportation,
       accommodation: formData.accommodation,
       preferences: formData.preferences,
-      free_text_input: formData.free_text_input
+      free_text_input: formData.free_text_input,
+      travel_style: formData.travel_style,
+      budget_level: formData.budget_level
     }
 
     const response = await generateTripPlan(requestData)
@@ -542,6 +586,15 @@ const handleSubmit = async () => {
   flex-wrap: wrap;
   gap: 8px;
   width: 100%;
+}
+
+.wide-control {
+  width: 100%;
+  flex-wrap: wrap;
+}
+
+.wide-control :deep(.ant-segmented-group) {
+  flex-wrap: wrap;
 }
 
 .preference-tag :deep(.ant-checkbox-wrapper) {

@@ -15,6 +15,7 @@ from ..agents.langgraph_agents import (
     create_planner_agent
 )
 from ..tools.amap_mcp_tools import get_cached_amap_tools
+from ..services.trip_enhancement_service import enhance_trip_plan
 from ..models.schemas import (
     TripRequest, TripPlan, DayPlan, Attraction, Meal, WeatherInfo,
     Location, Hotel, Budget
@@ -312,6 +313,8 @@ class TripPlannerWorkflow:
 - 天数: {request.travel_days}天
 - 交通方式: {request.transportation}
 - 住宿: {request.accommodation}
+- 旅行风格: {request.travel_style}
+- 预算档位: {request.budget_level}
 - 偏好: {', '.join(request.preferences) if request.preferences else '无'}
 
 **景点信息:**
@@ -419,22 +422,40 @@ class TripPlannerWorkflow:
             data = json.loads(json_str)
 
             weather_info = []
+            if isinstance(data, dict):
+                if isinstance(data.get("weather_info"), list):
+                    data = data["weather_info"]
+                elif isinstance(data.get("forecasts"), list):
+                    casts = []
+                    for forecast in data["forecasts"]:
+                        casts.extend(forecast.get("casts", []))
+                    data = casts
+                elif isinstance(data.get("lives"), list):
+                    data = data["lives"]
+                elif isinstance(data.get("casts"), list):
+                    data = data["casts"]
+                else:
+                    data = [data]
+
             if isinstance(data, list):
                 for item in data:
                     if isinstance(item, dict):
                         weather = WeatherInfo(
-                            date=item.get("date", ""),
-                            day_weather=item.get("day_weather", ""),
-                            night_weather=item.get("night_weather", ""),
-                            day_temp=item.get("day_temp", 0),
-                            night_temp=item.get("night_temp", 0),
-                            wind_direction=item.get("wind_direction", ""),
-                            wind_power=item.get("wind_power", "")
+                            date=item.get("date", item.get("reporttime", "")),
+                            day_weather=item.get("day_weather", item.get("dayweather", item.get("weather", ""))),
+                            night_weather=item.get("night_weather", item.get("nightweather", item.get("weather", ""))),
+                            day_temp=item.get("day_temp", item.get("daytemp", item.get("temperature", 0))),
+                            night_temp=item.get("night_temp", item.get("nighttemp", item.get("temperature", 0))),
+                            wind_direction=item.get("wind_direction", item.get("daywind", item.get("winddirection", ""))),
+                            wind_power=item.get("wind_power", item.get("daypower", item.get("windpower", "")))
                         )
                         weather_info.append(weather)
             return weather_info
         except Exception as e:
             logger.error(f"解析天气信息失败: {str(e)}")
+            logger.error(f"Weather raw response head: {response[:500]}")
+            if 'json_str' in locals():
+                logger.error(f"Weather extracted JSON head: {json_str[:500]}")
             return []
 
     def _parse_hotels(self, response: str) -> List[Hotel]:
@@ -477,7 +498,9 @@ class TripPlannerWorkflow:
                 days=[],
                 weather_info=[],
                 overall_suggestions=data.get("overall_suggestions", ""),
-                budget=None
+                budget=None,
+                travel_style=request.travel_style,
+                budget_level=request.budget_level
             )
 
             # 解析天气信息
@@ -521,7 +544,7 @@ class TripPlannerWorkflow:
                 budget = Budget(**budget_data)
                 trip_plan.budget = budget
 
-            return trip_plan
+            return enhance_trip_plan(trip_plan, request)
         except Exception as e:
             logger.error(f"解析行程计划失败: {str(e)}")
             # 返回备用计划
@@ -572,7 +595,9 @@ class TripPlannerWorkflow:
             end_date=request.end_date,
             days=days,
             weather_info=[],
-            overall_suggestions=f"这是为您规划的{request.city}{request.travel_days}日游行程,建议提前查看各景点的开放时间。"
+            overall_suggestions=f"这是为您规划的{request.city}{request.travel_days}日游行程,建议提前查看各景点的开放时间。",
+            travel_style=request.travel_style,
+            budget_level=request.budget_level
         )
 
     def plan_trip(self, request: TripRequest) -> TripPlan:
@@ -598,7 +623,7 @@ class TripPlannerWorkflow:
         logger.info(f"✅ 旅行计划生成完成!")
         logger.info(f"{'='*60}\n")
 
-        return final_state["trip_plan"]
+        return enhance_trip_plan(final_state["trip_plan"], request)
 
 
 # 全局工作流实例

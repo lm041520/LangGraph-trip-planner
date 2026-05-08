@@ -4,11 +4,14 @@ from fastapi import APIRouter, HTTPException
 import logging
 from ...models.schemas import (
     TripRequest,
+    TripPlanActionRequest,
     TripPlanResponse,
+    ReplaceAttractionRequest,
     ErrorResponse
 )
 # 从新的工作流导入
 from ...workflows.trip_planner_graph import get_trip_planner_workflow
+from ...services.trip_enhancement_service import enhance_trip_plan, reorder_day, replace_attraction
 
 router = APIRouter(prefix="/trip", tags=["旅行规划"])
 logger = logging.getLogger(__name__)
@@ -60,6 +63,63 @@ async def plan_trip(request: TripRequest):
             status_code=500,
             detail=f"生成旅行计划失败: {str(e)}"
         )
+
+
+@router.post("/enhance", response_model=TripPlanResponse, summary="补齐行程增强信息")
+async def enhance_plan(request: TripPlanActionRequest):
+    try:
+        return TripPlanResponse(
+            success=True,
+            message="行程增强信息已更新",
+            data=enhance_trip_plan(request.trip_plan)
+        )
+    except Exception as e:
+        logger.error(f"增强行程失败: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"增强行程失败: {str(e)}")
+
+
+@router.post("/reorder-day", response_model=TripPlanResponse, summary="智能重排某天行程")
+async def reorder_trip_day(request: TripPlanActionRequest):
+    try:
+        return TripPlanResponse(
+            success=True,
+            message="当天行程已智能重排",
+            data=reorder_day(request.trip_plan, request.day_index, request.mode, request.note or "")
+        )
+    except Exception as e:
+        logger.error(f"重排行程失败: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"重排行程失败: {str(e)}")
+
+
+@router.post("/adjust-day", response_model=TripPlanResponse, summary="按用户意图调整某天行程")
+async def adjust_trip_day(request: TripPlanActionRequest):
+    try:
+        return TripPlanResponse(
+            success=True,
+            message="当天行程已调整",
+            data=reorder_day(request.trip_plan, request.day_index, request.mode, request.note or "")
+        )
+    except Exception as e:
+        logger.error(f"调整行程失败: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"调整行程失败: {str(e)}")
+
+
+@router.post("/replace-attraction", response_model=TripPlanResponse, summary="一键替换景点")
+async def replace_trip_attraction(request: ReplaceAttractionRequest):
+    try:
+        return TripPlanResponse(
+            success=True,
+            message="景点已替换",
+            data=replace_attraction(
+                request.trip_plan,
+                request.day_index,
+                request.attraction_index,
+                request.preference or ""
+            )
+        )
+    except Exception as e:
+        logger.error(f"替换景点失败: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"替换景点失败: {str(e)}")
 
 
 @router.get(

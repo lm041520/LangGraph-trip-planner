@@ -15,6 +15,9 @@
         <a-button v-if="editMode" @click="cancelEdit" type="default">
           ❌ 取消编辑
         </a-button>
+        <a-button v-if="!editMode" :loading="actionLoading" @click="refreshEnhancements" type="default">
+          ✨ 刷新增强
+        </a-button>
 
         <!-- 导出按钮 -->
         <a-dropdown v-if="!editMode">
@@ -79,6 +82,34 @@
                   <span class="info-value">{{ tripPlan.overall_suggestions }}</span>
                 </div>
               </div>
+            </a-card>
+
+            <a-card
+              v-if="tripPlan.weather_alerts?.length || tripPlan.packing_checklist?.length"
+              title="✨ 智能提醒"
+              :bordered="false"
+              class="smart-card"
+            >
+              <div v-if="tripPlan.travel_style || tripPlan.budget_level" class="smart-meta">
+                <a-tag color="blue">{{ tripPlan.travel_style || '舒适均衡' }}</a-tag>
+                <a-tag color="green">{{ tripPlan.budget_level || '舒适' }}</a-tag>
+              </div>
+              <a-alert
+                v-for="alert in tripPlan.weather_alerts"
+                :key="alert"
+                type="warning"
+                show-icon
+                :message="alert"
+                class="smart-alert"
+              />
+              <a-divider v-if="tripPlan.packing_checklist?.length" orientation="left">出行清单</a-divider>
+              <a-tag
+                v-for="item in tripPlan.packing_checklist"
+                :key="item"
+                class="packing-tag"
+              >
+                {{ item }}
+              </a-tag>
             </a-card>
 
             <!-- 预算明细 -->
@@ -147,6 +178,26 @@
                 </div>
               </div>
 
+              <div class="day-actions" v-if="!editMode">
+                <a-space wrap>
+                  <a-button size="small" :loading="actionLoading" @click="adjustDay(index, 'relaxed')">轻松一点</a-button>
+                  <a-button size="small" :loading="actionLoading" @click="adjustDay(index, 'rainy')">下雨备选</a-button>
+                  <a-button size="small" :loading="actionLoading" @click="adjustDay(index, 'compact')">路线更顺</a-button>
+                </a-space>
+              </div>
+
+              <div v-if="day.weather_tip || day.route_summary || day.score" class="day-insights">
+                <a-alert v-if="day.weather_tip" type="info" show-icon :message="day.weather_tip" />
+                <div v-if="day.route_summary" class="route-summary">路线: {{ day.route_summary }}</div>
+                <div v-if="day.score" class="score-grid">
+                  <a-statistic title="综合评分" :value="day.score.overall" suffix="/100" />
+                  <a-statistic title="路线紧凑" :value="day.score.route_compactness" suffix="/100" />
+                  <a-statistic title="游玩强度" :value="day.score.intensity" suffix="/100" />
+                  <a-statistic title="天气适配" :value="day.score.weather_fit" suffix="/100" />
+                </div>
+                <div v-if="day.score?.comment" class="score-comment">{{ day.score.comment }}</div>
+              </div>
+
               <!-- 景点安排 -->
               <a-divider orientation="left">🎯 景点安排</a-divider>
               <a-list
@@ -157,8 +208,8 @@
                   <a-list-item>
                     <a-card :title="item.name" size="small" class="attraction-card">
                       <!-- 编辑模式下的操作按钮 -->
-                      <template #extra v-if="editMode">
-                        <a-space>
+                      <template #extra>
+                        <a-space v-if="editMode">
                           <a-button
                             size="small"
                             @click="moveAttraction(day.day_index, index, 'up')"
@@ -181,6 +232,14 @@
                             🗑️
                           </a-button>
                         </a-space>
+                        <a-button
+                          v-else
+                          size="small"
+                          :loading="actionLoading"
+                          @click="replaceOneAttraction(day.day_index, index)"
+                        >
+                          换一个
+                        </a-button>
                       </template>
 
                       <!-- 景点图片 -->
@@ -254,6 +313,30 @@
           </a-collapse>
         </a-card>
 
+        <a-card
+          v-if="tripPlan.day_routes && tripPlan.day_routes.length > 0"
+          title="🧭 每日路线串联"
+          :bordered="false"
+          class="routes-card"
+        >
+          <a-collapse>
+            <a-collapse-panel
+              v-for="route in tripPlan.day_routes"
+              :key="`route-${route.day_index}`"
+              :header="`第${route.day_index + 1}天 · ${route.summary}`"
+            >
+              <a-timeline>
+                <a-timeline-item v-for="leg in route.legs" :key="`${leg.origin}-${leg.destination}`">
+                  {{ leg.origin }} → {{ leg.destination }}
+                  <span class="route-leg-meta">
+                    {{ leg.distance_km }} km / {{ leg.duration_min }} 分钟 / {{ leg.transport }}
+                  </span>
+                </a-timeline-item>
+              </a-timeline>
+            </a-collapse-panel>
+          </a-collapse>
+        </a-card>
+
         <a-card id="weather" v-if="tripPlan.weather_info && tripPlan.weather_info.length > 0" title="天气信息" style="margin-top: 20px" :bordered="false">
         <a-list
           :data-source="tripPlan.weather_info"
@@ -316,6 +399,7 @@ import AMapLoader from '@amap/amap-jsapi-loader'
 import html2canvas from 'html2canvas'
 import jsPDF from 'jspdf'
 import type { TripPlan } from '@/types'
+import { enhanceTripPlan, reorderTripDay, replaceAttraction } from '@/services/api'
 
 const router = useRouter()
 const tripPlan = ref<TripPlan | null>(null)
@@ -324,6 +408,7 @@ const originalPlan = ref<TripPlan | null>(null)
 const attractionPhotos = ref<Record<string, string>>({})
 const activeSection = ref('overview')
 const activeDays = ref<number[]>([0]) // 默认展开第一天
+const actionLoading = ref(false)
 let map: any = null
 
 onMounted(async () => {
@@ -384,6 +469,70 @@ const cancelEdit = () => {
   }
   editMode.value = false
   message.info('已取消编辑')
+}
+
+const persistPlan = async () => {
+  if (!tripPlan.value) return
+  sessionStorage.setItem('tripPlan', JSON.stringify(tripPlan.value))
+  if (map) {
+    map.destroy()
+    map = null
+  }
+  await nextTick()
+  initMap()
+}
+
+const refreshEnhancements = async () => {
+  if (!tripPlan.value) return
+  actionLoading.value = true
+  try {
+    const response = await enhanceTripPlan(tripPlan.value)
+    if (response.success && response.data) {
+      tripPlan.value = response.data
+      await persistPlan()
+      message.success('增强信息已刷新')
+    }
+  } catch (error: any) {
+    message.error(error.message || '刷新增强信息失败')
+  } finally {
+    actionLoading.value = false
+  }
+}
+
+const adjustDay = async (dayIndex: number, mode: string) => {
+  if (!tripPlan.value) return
+  actionLoading.value = true
+  try {
+    const response = await reorderTripDay(tripPlan.value, dayIndex, mode)
+    if (response.success && response.data) {
+      tripPlan.value = response.data
+      await persistPlan()
+      message.success('当天行程已调整')
+    }
+  } catch (error: any) {
+    message.error(error.message || '调整失败')
+  } finally {
+    actionLoading.value = false
+  }
+}
+
+const replaceOneAttraction = async (dayIndex: number, attractionIndex: number) => {
+  if (!tripPlan.value) return
+  actionLoading.value = true
+  try {
+    const preference = tripPlan.value.travel_style || ''
+    const response = await replaceAttraction(tripPlan.value, dayIndex, attractionIndex, preference)
+    if (response.success && response.data) {
+      tripPlan.value = response.data
+      await loadAttractionPhotos()
+      await persistPlan()
+      message.success('已替换景点')
+    }
+  } catch (error: any) {
+    message.error(error.message || '替换失败')
+  } finally {
+    actionLoading.value = false
+  }
 }
 
 // 删除景点
@@ -829,11 +978,14 @@ const restoreMap = () => {
   }
 }
 
+void captureMapImage
+void restoreMap
+
 // 初始化地图
 const initMap = async () => {
   try {
     const AMap = await AMapLoader.load({
-      key: import.meta.env.VITE_AMAP_WEB_JS_KEY,  // 高德地图Web端(JS API) Key
+      key: import.meta.env.VITE_AMAP_WEB_JS_KEY || '',  // 高德地图Web端(JS API) Key
       version: '2.0',
       plugins: ['AMap.Marker', 'AMap.Polyline', 'AMap.InfoWindow']
     })
@@ -1208,6 +1360,22 @@ const drawRoutes = (AMap: any, attractions: any[]) => {
   height: fit-content;
 }
 
+.smart-card {
+  height: fit-content;
+}
+
+.smart-meta {
+  margin-bottom: 12px;
+}
+
+.smart-alert {
+  margin-bottom: 8px;
+}
+
+.packing-tag {
+  margin-bottom: 8px;
+}
+
 .budget-grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
@@ -1295,6 +1463,41 @@ const drawRoutes = (AMap: any, attractions: any[]) => {
   background: linear-gradient(135deg, #f5f7fa 0%, #ffffff 100%);
   border-radius: 8px;
   border: 1px solid #e8e8e8;
+}
+
+.day-actions {
+  margin-bottom: 16px;
+}
+
+.day-insights {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 16px;
+  padding: 14px;
+  background: #f7fbff;
+  border: 1px solid #d6e8ff;
+  border-radius: 8px;
+}
+
+.route-summary {
+  color: #1d4ed8;
+  font-weight: 600;
+}
+
+.score-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(100px, 1fr));
+  gap: 12px;
+}
+
+.score-comment {
+  color: #555;
+}
+
+.route-leg-meta {
+  margin-left: 8px;
+  color: #666;
 }
 
 .info-row {

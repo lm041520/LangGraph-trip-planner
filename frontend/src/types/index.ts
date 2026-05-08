@@ -45,6 +45,32 @@ export interface Budget {
   total: number
 }
 
+export interface RouteLeg {
+  origin: string
+  destination: string
+  distance_km: number
+  duration_min: number
+  transport: string
+}
+
+export interface DayRoute {
+  day_index: number
+  summary: string
+  legs: RouteLeg[]
+  total_distance_km: number
+  total_duration_min: number
+}
+
+export interface DayScore {
+  day_index: number
+  route_compactness: number
+  intensity: number
+  budget_friendliness: number
+  weather_fit: number
+  overall: number
+  comment: string
+}
+
 export interface DayPlan {
   date: string
   day_index: number
@@ -54,6 +80,9 @@ export interface DayPlan {
   hotel?: Hotel
   attractions: Attraction[]
   meals: Meal[]
+  weather_tip?: string
+  route_summary?: string
+  score?: DayScore
 }
 
 export interface WeatherInfo {
@@ -74,6 +103,12 @@ export interface TripPlan {
   weather_info: WeatherInfo[]
   overall_suggestions: string
   budget?: Budget
+  travel_style?: string
+  budget_level?: string
+  weather_alerts?: string[]
+  packing_checklist?: string[]
+  day_routes?: DayRoute[]
+  daily_scores?: DayScore[]
 }
 
 export interface TripFormData {
@@ -85,6 +120,8 @@ export interface TripFormData {
   accommodation: string
   preferences: string[]
   free_text_input: string
+  travel_style: string
+  budget_level: string
 }
 
 export interface TripPlanResponse {

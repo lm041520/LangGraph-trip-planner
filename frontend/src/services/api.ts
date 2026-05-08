@@ -1,5 +1,6 @@
 import axios from 'axios'
 import type { TripFormData, TripPlanResponse } from '@/types'
+import type { TripPlan } from '@/types'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
 
@@ -46,6 +47,50 @@ export async function generateTripPlan(formData: TripFormData): Promise<TripPlan
     console.error('生成旅行计划失败:', error)
     throw new Error(error.response?.data?.detail || error.message || '生成旅行计划失败')
   }
+}
+
+export async function enhanceTripPlan(tripPlan: TripPlan): Promise<TripPlanResponse> {
+  const response = await apiClient.post<TripPlanResponse>('/api/trip/enhance', {
+    trip_plan: tripPlan,
+    day_index: 0,
+    mode: 'enhance'
+  })
+  return response.data
+}
+
+export async function reorderTripDay(tripPlan: TripPlan, dayIndex: number, mode: string, note = ''): Promise<TripPlanResponse> {
+  const response = await apiClient.post<TripPlanResponse>('/api/trip/reorder-day', {
+    trip_plan: tripPlan,
+    day_index: dayIndex,
+    mode,
+    note
+  })
+  return response.data
+}
+
+export async function adjustTripDay(tripPlan: TripPlan, dayIndex: number, mode: string, note = ''): Promise<TripPlanResponse> {
+  const response = await apiClient.post<TripPlanResponse>('/api/trip/adjust-day', {
+    trip_plan: tripPlan,
+    day_index: dayIndex,
+    mode,
+    note
+  })
+  return response.data
+}
+
+export async function replaceAttraction(
+  tripPlan: TripPlan,
+  dayIndex: number,
+  attractionIndex: number,
+  preference = ''
+): Promise<TripPlanResponse> {
+  const response = await apiClient.post<TripPlanResponse>('/api/trip/replace-attraction', {
+    trip_plan: tripPlan,
+    day_index: dayIndex,
+    attraction_index: attractionIndex,
+    preference
+  })
+  return response.data
 }
 
 /**

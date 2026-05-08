@@ -1,5 +1,7 @@
 """数据模型定义"""
 
+from __future__ import annotations
+
 from typing import List, Optional, Union
 from pydantic import BaseModel, Field, field_validator
 from datetime import date
@@ -17,6 +19,8 @@ class TripRequest(BaseModel):
     accommodation: str = Field(..., description="住宿偏好", example="经济型酒店")
     preferences: List[str] = Field(default=[], description="旅行偏好标签", example=["历史文化", "美食"])
     free_text_input: Optional[str] = Field(default="", description="额外要求", example="希望多安排一些博物馆")
+    travel_style: str = Field(default="舒适均衡", description="旅行风格")
+    budget_level: str = Field(default="舒适", description="预算档位")
     
     class Config:
         json_schema_extra = {
@@ -104,6 +108,9 @@ class DayPlan(BaseModel):
     hotel: Optional[Hotel] = Field(default=None, description="推荐酒店")
     attractions: List[Attraction] = Field(default=[], description="景点列表")
     meals: List[Meal] = Field(default=[], description="餐饮列表")
+    weather_tip: Optional[str] = Field(default="", description="天气提醒")
+    route_summary: Optional[str] = Field(default="", description="路线摘要")
+    score: Optional[DayScore] = Field(default=None, description="每日评分")
 
 
 class WeatherInfo(BaseModel):
@@ -139,6 +146,35 @@ class Budget(BaseModel):
     total: int = Field(default=0, description="总费用")
 
 
+class RouteLeg(BaseModel):
+    """单段路线"""
+    origin: str
+    destination: str
+    distance_km: float = 0
+    duration_min: int = 0
+    transport: str = ""
+
+
+class DayRoute(BaseModel):
+    """每日路线串联"""
+    day_index: int
+    summary: str = ""
+    legs: List[RouteLeg] = Field(default_factory=list)
+    total_distance_km: float = 0
+    total_duration_min: int = 0
+
+
+class DayScore(BaseModel):
+    """每日行程评分"""
+    day_index: int
+    route_compactness: int = Field(default=0, ge=0, le=100)
+    intensity: int = Field(default=0, ge=0, le=100)
+    budget_friendliness: int = Field(default=0, ge=0, le=100)
+    weather_fit: int = Field(default=0, ge=0, le=100)
+    overall: int = Field(default=0, ge=0, le=100)
+    comment: str = ""
+
+
 class TripPlan(BaseModel):
     """旅行计划"""
     city: str = Field(..., description="目的地城市")
@@ -148,6 +184,12 @@ class TripPlan(BaseModel):
     weather_info: List[WeatherInfo] = Field(default=[], description="天气信息")
     overall_suggestions: str = Field(..., description="总体建议")
     budget: Optional[Budget] = Field(default=None, description="预算信息")
+    travel_style: str = Field(default="舒适均衡", description="旅行风格")
+    budget_level: str = Field(default="舒适", description="预算档位")
+    weather_alerts: List[str] = Field(default_factory=list, description="天气影响提醒")
+    packing_checklist: List[str] = Field(default_factory=list, description="旅行清单")
+    day_routes: List[DayRoute] = Field(default_factory=list, description="每日路线")
+    daily_scores: List[DayScore] = Field(default_factory=list, description="每日评分")
 
 
 class TripPlanResponse(BaseModel):
@@ -155,6 +197,22 @@ class TripPlanResponse(BaseModel):
     success: bool = Field(..., description="是否成功")
     message: str = Field(default="", description="消息")
     data: Optional[TripPlan] = Field(default=None, description="旅行计划数据")
+
+
+class TripPlanActionRequest(BaseModel):
+    """行程交互调整请求"""
+    trip_plan: TripPlan
+    day_index: int = Field(default=0, ge=0, description="第几天")
+    mode: str = Field(default="relaxed", description="调整模式")
+    note: Optional[str] = Field(default="", description="补充说明")
+
+
+class ReplaceAttractionRequest(BaseModel):
+    """替换单个景点请求"""
+    trip_plan: TripPlan
+    day_index: int = Field(default=0, ge=0)
+    attraction_index: int = Field(default=0, ge=0)
+    preference: Optional[str] = Field(default="")
 
 
 class POIInfo(BaseModel):
