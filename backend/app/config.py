@@ -3,17 +3,43 @@
 import os
 from pathlib import Path
 from typing import List
+from pydantic import Field
 from pydantic_settings import BaseSettings
 from dotenv import load_dotenv
 
 # 加载环境变量
 # 首先尝试加载当前目录的.env
 load_dotenv()
+backend_env = Path(__file__).resolve().parents[1] / ".env"
+if backend_env.exists():
+    load_dotenv(backend_env, override=False)
 
 # 然后尝试加载HelloAgents的.env(如果存在)
 helloagents_env = Path(__file__).parent.parent.parent.parent / "HelloAgents" / ".env"
 if helloagents_env.exists():
     load_dotenv(helloagents_env, override=False)  # 不覆盖已有的环境变量
+
+
+def _set_openai_aliases_from_llm_env() -> None:
+    """Support legacy LLM_* env names used by this project's .env.example."""
+    aliases = {
+        "OPENAI_API_KEY": ("LLM_API_KEY", "DEEPSEEK_API_KEY"),
+        "OPENAI_BASE_URL": ("LLM_BASE_URL",),
+        "OPENAI_MODEL": ("LLM_MODEL_ID",),
+    }
+
+    for target, sources in aliases.items():
+        if os.getenv(target):
+            continue
+
+        for source in sources:
+            value = os.getenv(source)
+            if value:
+                os.environ[target] = value
+                break
+
+
+_set_openai_aliases_from_llm_env()
 
 
 class Settings(BaseSettings):
@@ -22,7 +48,7 @@ class Settings(BaseSettings):
     # 应用基本配置
     app_name: str = "多agent的智能旅行助手"
     app_version: str = "1.0.0"
-    debug: bool = False
+    debug: bool = Field(default=False, validation_alias="APP_DEBUG")
 
     # 服务器配置
     host: str = "0.0.0.0"

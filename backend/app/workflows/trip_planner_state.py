@@ -15,6 +15,11 @@ def update_step(prev: str, new: str) -> str:
     return new
 
 
+def update_error(prev: Optional[str], new: Optional[str]) -> Optional[str]:
+    """Keep the first error reported by parallel branches."""
+    return prev or new
+
+
 class TripPlannerState(TypedDict):
     """旅行规划工作流状态"""
     # 输入
@@ -31,7 +36,7 @@ class TripPlannerState(TypedDict):
 
     # 最终输出
     trip_plan: Optional[TripPlan]
-    error: Optional[str]
+    error: Annotated[Optional[str], update_error]
     current_step: Annotated[str, update_step]  # 跟踪当前执行步骤
 
 

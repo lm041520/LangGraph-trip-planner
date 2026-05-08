@@ -4,7 +4,7 @@ from typing import Dict, Any, List, Optional
 import json
 import logging
 from datetime import datetime, timedelta
-from langgraph.graph import StateGraph, END
+from langgraph.graph import StateGraph, START, END
 from langchain_core.messages import HumanMessage
 
 from .trip_planner_state import TripPlannerState, create_initial_state, has_error
@@ -129,36 +129,21 @@ class TripPlannerWorkflow:
         workflow.add_node("search_attractions", self._search_attractions)
         workflow.add_node("check_weather", self._check_weather)
         workflow.add_node("find_hotels", self._find_hotels)
+        workflow.add_node("join_research_results", self._join_research_results)
         workflow.add_node("plan_itinerary", self._plan_itinerary)
         workflow.add_node("handle_error", self._handle_error)
         # 设置入口点
-        workflow.set_entry_point("search_attractions")
+        workflow.add_edge(START, "search_attractions")
+        workflow.add_edge(START, "check_weather")
+        workflow.add_edge(START, "find_hotels")
         # 添加边（正常流程）
-        workflow.add_edge("search_attractions", "check_weather")
-        workflow.add_edge("check_weather", "find_hotels")
-        workflow.add_edge("find_hotels", "plan_itinerary")
-        workflow.add_edge("plan_itinerary", END)
+        workflow.add_edge(
+            ["search_attractions", "check_weather", "find_hotels"],
+            "join_research_results"
+        )
         # 添加错误处理边
         workflow.add_conditional_edges(
-            "search_attractions",
-            self._check_error,
-            {
-                "continue": "check_weather",
-                "error": "handle_error"
-            }
-        )
-
-        workflow.add_conditional_edges(
-            "check_weather",
-            self._check_error,
-            {
-                "continue": "find_hotels",
-                "error": "handle_error"
-            }
-        )
-
-        workflow.add_conditional_edges(
-            "find_hotels",
+            "join_research_results",
             self._check_error,
             {
                 "continue": "plan_itinerary",
@@ -167,8 +152,14 @@ class TripPlannerWorkflow:
         )
 
         workflow.add_edge("handle_error", END)
+        workflow.add_edge("plan_itinerary", END)
 
         return workflow.compile()
+
+    def _join_research_results(self, state: TripPlannerState) -> Dict[str, Any]:
+        """Join parallel research branches before itinerary planning."""
+        logger.info("Research agents completed; preparing itinerary planning...")
+        return {"current_step": "research_completed"}
 
     def _search_attractions(self, state: TripPlannerState) -> Dict[str, Any]:
         """搜索景点节点"""
@@ -371,6 +362,22 @@ class TripPlannerWorkflow:
             json_str = response.strip()
         return json_str
 
+    def _parse_location(self, value: Any) -> Optional[Location]:
+        """Parse location from either a dict or the AMap "lng,lat" format."""
+        try:
+            if isinstance(value, dict):
+                longitude = value.get("longitude", value.get("lng", 0.0))
+                latitude = value.get("latitude", value.get("lat", 0.0))
+                return Location(longitude=float(longitude or 0.0), latitude=float(latitude or 0.0))
+
+            if isinstance(value, str) and "," in value:
+                longitude, latitude = value.split(",", 1)
+                return Location(longitude=float(longitude.strip()), latitude=float(latitude.strip()))
+        except (TypeError, ValueError):
+            logger.warning(f"Invalid location value: {value}")
+
+        return None
+
     def _parse_attractions(self, response: str) -> List[Attraction]:
         """解析景点信息"""
         try:
@@ -387,10 +394,7 @@ class TripPlannerWorkflow:
                         attraction = Attraction(
                             name=item.get("name", ""),
                             address=item.get("address", ""),
-                            location=Location(
-                                longitude=item.get("location", {}).get("longitude", 0.0),
-                                latitude=item.get("location", {}).get("latitude", 0.0)
-                            ),
+                            location=self._parse_location(item.get("location")) or Location(longitude=0.0, latitude=0.0),
                             visit_duration=item.get("visit_duration", 120),
                             description=item.get("description", ""),
                             category=item.get("category", "景点"),
@@ -446,10 +450,7 @@ class TripPlannerWorkflow:
                         hotel = Hotel(
                             name=item.get("name", ""),
                             address=item.get("address", ""),
-                            location=Location(
-                                longitude=item.get("location", {}).get("longitude", 0.0),
-                                latitude=item.get("location", {}).get("latitude", 0.0)
-                            ) if item.get("location") else None,
+                            location=self._parse_location(item.get("location")),
                             price_range=item.get("price_range", ""),
                             rating=item.get("rating", ""),
                             distance=item.get("distance", ""),
